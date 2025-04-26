@@ -1,4 +1,8 @@
 {
+    "email": {
+        "username": "first.last@email.com",
+        "password": "password"
+    },
     "check_interval": 100,
     "currencies": [
         {
