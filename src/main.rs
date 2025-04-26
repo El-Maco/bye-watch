@@ -1,11 +1,18 @@
 mod email;
 
+use lettre::{transport::smtp::authentication::Credentials, Message, SmtpTransport, Transport};
 use reqwest;
 use serde::Deserialize;
 use std::fs;
 
 #[derive(Debug, Deserialize)]
+struct EmailConfig {
+    username: String,
+    password: String,
+}
+#[derive(Debug, Deserialize)]
 struct Config {
+    email: EmailConfig,
     check_interval: u64,
     currencies: Vec<CurrencyAlert>,
 }
@@ -72,5 +79,23 @@ fn check_currencies(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    Ok(())
+}
+
+fn send_email(config: &Config, subject: &str, body: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let email = Message::builder()
+        .from(config.email.username.parse().unwrap())
+        .to(config.email.username.parse().unwrap())
+        .subject(subject)
+        .body(body.to_string())
+        .unwrap();
+
+    let creds = Credentials::new(config.email.username.clone(), config.email.password.clone());
+    let mailer = SmtpTransport::relay("smtp.gmail.com")
+        .unwrap()
+        .credentials(creds)
+        .build();
+
+    mailer.send(&email)?;
     Ok(())
 }
