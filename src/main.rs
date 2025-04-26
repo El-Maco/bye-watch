@@ -45,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         match check_currencies(&mut config) {
-            Ok(_) => println!("Check completed at {}", Local::now().format("%d-%m-%Y %H:%M:%S")),
+            Ok(_) => println!(
+                "Check completed at {}",
+                Local::now().format("%d-%m-%Y %H:%M:%S")
+            ),
             Err(e) => eprintln!("Error during check: {}", e),
         }
 
@@ -92,10 +95,8 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
 
             if alert_triggered {
                 let should_alert = match currency.last_alerted {
-                    Some(timestamp) => {
-                        current_time - timestamp > 86400
-                    },
-                    None => true
+                    Some(timestamp) => current_time - timestamp > 86400,
+                    None => true,
                 };
                 if should_alert {
                     println!(
@@ -116,11 +117,17 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                     body.push_str(&price_text);
                     currency.last_alerted = Some(current_time);
                 } else {
-                    println!("Alert condition met for {}, but already alerted within 24 hours", currency.symbol);
+                    println!(
+                        "Alert condition met for {}, but already alerted within 24 hours",
+                        currency.symbol
+                    );
                 }
             } else {
                 if currency.last_alerted.is_some() {
-                    println!("Condition no longer met for {}, resetting alert status", currency.symbol);
+                    println!(
+                        "Condition no longer met for {}, resetting alert status",
+                        currency.symbol
+                    );
                     currency.last_alerted = None;
                 }
             }
@@ -131,7 +138,7 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
 
     if !body.is_empty() {
         let body = format!("Found the following crypto alerts\n\n {}", body);
-        // send_email(config, "[bye-watch] Price Alert", &body)?;
+        send_email(config, "[bye-watch] Price Alert", &body)?;
         println!("{}", body);
     }
 
