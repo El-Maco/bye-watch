@@ -1,0 +1,15 @@
+{
+    "check_interval": 100,
+    "currencies": [
+        {
+            "symbol": "BTCEUR",
+            "threshold": 50000.0,
+            "alert_condition": "above"
+        },
+        {
+            "symbol": "ETHEUR",
+            "threshold": 2000.0,
+            "alert_condition": "below"
+        }
+    ]
+}
