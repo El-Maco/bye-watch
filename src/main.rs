@@ -108,7 +108,6 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
             if alert_triggered {
                 let should_alert = match currency.last_alerted {
                     Some(timestamp) => {
-                        println!("Checking {} last_alerted: {current_time} - {timestamp} > {withold_time_secs} = {}", currency.symbol, current_time - timestamp > withold_time_secs);
                         let should_alert = current_time - timestamp > withold_time_secs;
                         if should_alert {
                             println!(
