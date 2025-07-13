@@ -4,6 +4,7 @@
         "password": "password"
     },
     "check_interval": 100,
+    "withold_notification_h": 24,
     "currencies": [
         {
             "symbol": "BTCEUR",
