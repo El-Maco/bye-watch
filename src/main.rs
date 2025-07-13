@@ -107,18 +107,7 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
             );
             if alert_triggered {
                 let should_alert = match currency.last_alerted {
-                    Some(timestamp) => {
-                        let should_alert = current_time - timestamp > withold_time_secs;
-                        if should_alert {
-                            println!(
-                                "Alert condition met for {}, last alerted at {}",
-                                currency.symbol, timestamp
-                            );
-                        } else {
-                            println!("Alert condition met for {}, but already alerted within {:.2} hours", currency.symbol, withold_time_secs as f64 / 3600.0);
-                        }
-                        should_alert
-                    }
+                    Some(timestamp) => current_time - timestamp > withold_time_secs,
                     None => true,
                 };
                 if should_alert {
