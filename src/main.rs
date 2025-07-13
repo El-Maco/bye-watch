@@ -151,7 +151,7 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
 
     if !body.is_empty() {
         let body = format!("Found the following crypto alerts\n\n {}", body);
-        // send_email(config, "[bye-watch] Price Alert", &body)?;
+        send_email(config, "[bye-watch] Price Alert", &body)?;
         println!("{}", body);
     }
 
