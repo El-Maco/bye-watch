@@ -19,10 +19,16 @@ struct Config {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+enum AlertCondition {
+    Above,
+    Below,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct CurrencyAlert {
     symbol: String,
     threshold: f64,
-    alert_condition: String,
+    alert_condition: AlertCondition,
     last_alerted: Option<u64>,
 }
 
@@ -87,10 +93,13 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     for currency in &mut config.currencies {
         if let Some(current_price) = prices.iter().find(|p| p.symbol == currency.symbol) {
-            let alert_triggered = match currency.alert_condition.as_str() {
-                "above" => current_price.price.parse::<f64>().unwrap() > currency.threshold,
-                "below" => current_price.price.parse::<f64>().unwrap() < currency.threshold,
-                _ => false,
+            let alert_triggered = match currency.alert_condition {
+                AlertCondition::Above => {
+                    current_price.price.parse::<f64>().unwrap() > currency.threshold
+                }
+                AlertCondition::Below => {
+                    current_price.price.parse::<f64>().unwrap() < currency.threshold
+                }
             };
 
             let withold_time_secs = config.withold_notification_h.unwrap_or(
@@ -98,10 +107,7 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
             );
             if alert_triggered {
                 let should_alert = match currency.last_alerted {
-                    Some(timestamp) => {
-                        println!("Checking {} last_alerted: {current_time} - {timestamp} > {withold_time_secs} = {}", currency.symbol, current_time - timestamp > withold_time_secs);
-                        current_time - timestamp > withold_time_secs
-                    }
+                    Some(timestamp) => current_time - timestamp > withold_time_secs,
                     None => true,
                 };
                 if should_alert {
@@ -109,13 +115,13 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                         "Alert triggered for {}: price {} is {} threshold {}",
                         currency.symbol,
                         current_price.price,
-                        currency.alert_condition,
+                        serde_json::to_string(&currency.alert_condition).unwrap(),
                         currency.threshold
                     );
                     let price_text = format!(
                         "\n{} {} threshold {}\nCurrent price: {:.2}\nTime: {}\n",
                         currency.symbol,
-                        currency.alert_condition,
+                        serde_json::to_string(&currency.alert_condition).unwrap(),
                         currency.threshold,
                         current_price.price.parse::<f64>().unwrap_or(0.0),
                         Local::now().format("%d-%m-%Y %H:%M:%S")
@@ -145,7 +151,7 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
 
     if !body.is_empty() {
         let body = format!("Found the following crypto alerts\n\n {}", body);
-        send_email(config, "[bye-watch] Price Alert", &body)?;
+        // send_email(config, "[bye-watch] Price Alert", &body)?;
         println!("{}", body);
     }
 
