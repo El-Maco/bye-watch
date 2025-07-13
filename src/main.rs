@@ -24,6 +24,15 @@ enum AlertCondition {
     Below,
 }
 
+impl std::fmt::Display for AlertCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AlertCondition::Above => write!(f, "Above"),
+            AlertCondition::Below => write!(f, "Below"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct CurrencyAlert {
     symbol: String,
@@ -45,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Bye-Watch Started");
     println!(
-        "Checking {} currencies every {} seconds",
+        "Checking {} alerts every {} seconds",
         config.currencies.len(),
         config.check_interval
     );
@@ -112,16 +121,16 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                 };
                 if should_alert {
                     println!(
-                        "Alert triggered for {}: price {} is {} threshold {}",
+                        "Alert triggered for {} {} {}. Current price {}",
                         currency.symbol,
+                        currency.alert_condition,
+                        currency.threshold,
                         current_price.price,
-                        serde_json::to_string(&currency.alert_condition).unwrap(),
-                        currency.threshold
                     );
                     let price_text = format!(
                         "\n{} {} threshold {}\nCurrent price: {:.2}\nTime: {}\n",
                         currency.symbol,
-                        serde_json::to_string(&currency.alert_condition).unwrap(),
+                        currency.alert_condition,
                         currency.threshold,
                         current_price.price.parse::<f64>().unwrap_or(0.0),
                         Local::now().format("%d-%m-%Y %H:%M:%S")
@@ -130,18 +139,28 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                     currency.last_alerted = Some(current_time);
                 } else {
                     println!(
-                        "Alert condition met for {}, but already alerted within {:.2} hours",
+                        "Alert condition met for {} {} {}, but already alerted within {:.2} hours",
                         currency.symbol,
+                        currency.alert_condition,
+                        currency.threshold,
                         withold_time_secs as f64 / 3600.0,
                     );
                 }
             } else {
                 if currency.last_alerted.is_some() {
                     println!(
-                        "Condition no longer met for {}, resetting alert status",
-                        currency.symbol
+                        "Condition no longer met for {} {} {}, resetting alert status",
+                        currency.symbol, currency.alert_condition, currency.threshold
                     );
                     currency.last_alerted = None;
+                } else {
+                    println!(
+                        "Alert condition NOT met for {} {} {}, current price: {}",
+                        currency.symbol,
+                        currency.alert_condition,
+                        currency.threshold,
+                        current_price.price
+                    );
                 }
             }
         } else {
