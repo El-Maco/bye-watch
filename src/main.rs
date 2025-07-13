@@ -14,6 +14,7 @@ struct EmailConfig {
 struct Config {
     email: EmailConfig,
     check_interval: u64,
+    withold_notification_h: Option<u64>,
     currencies: Vec<CurrencyAlert>,
 }
 
@@ -71,12 +72,11 @@ fn fetch_prices(config: &Config) -> Result<Vec<BinancePrice>, Box<dyn std::error
     let currency_symbols: Vec<String> =
         config.currencies.iter().map(|c| c.symbol.clone()).collect();
 
-    let mut filtered_prices: Vec<BinancePrice> = vec![];
-    for price_data in prices {
-        if currency_symbols.contains(&price_data.symbol) {
-            filtered_prices.push(price_data);
-        }
-    }
+    let filtered_prices: Vec<BinancePrice> = prices
+        .into_iter()
+        .filter(|price_data| currency_symbols.contains(&price_data.symbol))
+        .collect();
+
     Ok(filtered_prices)
 }
 
@@ -93,9 +93,15 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                 _ => false,
             };
 
+            let withold_time_secs = config.withold_notification_h.unwrap_or(
+                24 * 60 * 60, // Default to 24 hours if not specified
+            );
             if alert_triggered {
                 let should_alert = match currency.last_alerted {
-                    Some(timestamp) => current_time - timestamp > 86400,
+                    Some(timestamp) => {
+                        println!("Checking {} last_alerted: {current_time} - {timestamp} > {withold_time_secs} = {}", currency.symbol, current_time - timestamp > withold_time_secs);
+                        current_time - timestamp > withold_time_secs
+                    }
                     None => true,
                 };
                 if should_alert {
@@ -118,8 +124,9 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                     currency.last_alerted = Some(current_time);
                 } else {
                     println!(
-                        "Alert condition met for {}, but already alerted within 24 hours",
-                        currency.symbol
+                        "Alert condition met for {}, but already alerted within {:.2} hours",
+                        currency.symbol,
+                        withold_time_secs as f64 / 3600.0,
                     );
                 }
             } else {
