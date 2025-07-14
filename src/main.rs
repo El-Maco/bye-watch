@@ -121,11 +121,14 @@ fn check_currencies(config: &mut Config) -> Result<(), Box<dyn std::error::Error
                 };
                 if should_alert {
                     println!(
-                        "Alert triggered for {} {} {}. Current price {}",
+                        "Alert triggered for {} {} {}. Current price {} (now: {}, last alerted: {}, withold_time_secs: {})",
                         currency.symbol,
                         currency.alert_condition,
                         currency.threshold,
                         current_price.price,
+                        current_time,
+                        currency.last_alerted.unwrap_or(0),
+                        withold_time_secs,
                     );
                     let price_text = format!(
                         "\n{} {} threshold {}\nCurrent price: {:.2}\nTime: {}\n",
