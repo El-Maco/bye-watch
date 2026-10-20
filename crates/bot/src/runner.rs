@@ -121,10 +121,55 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         sources = sources.len(),
         markets = keys.len(),
         cash = %broker.portfolio().cash,
+        starting_cash = %starting_cash,
+        instrument_currency = %config.market.instrument_currency,
+        ledger_currency = %config.market.quote_currency,
+        fx_fallback_rate = config.market.fx_fallback_rate,
+        tick_secs = config.engine.tick_secs,
+        max_history = config.engine.max_history,
+        market_hours_only = config.engine.market_hours_only,
+        log_heartbeat_secs = config.engine.log_heartbeat_secs,
         sizing = %sizer.describe(),
+        allow_short = config.paper.allow_short,
         fees_enabled = config.fees.enabled,
+        commission_flat = config.fees.commission_flat,
+        commission_pct = config.fees.commission_pct,
+        slippage_bps = config.fees.slippage_bps,
+        social_provider = %social_provider.name(),
+        agent_enabled = config.agent.enabled,
         "bye-watch started"
     );
+
+    for strategy in &config.strategies {
+        tracing::info!(
+            strategy = %strategy.name,
+            symbols = ?strategy.symbols,
+            interval = %strategy.interval,
+            params = %strategy.params,
+            "strategy configured"
+        );
+    }
+
+    if config.agent.enabled {
+        tracing::info!(
+            base_url = %config.agent.base_url,
+            model = %config.agent.model,
+            interval = %config.agent.interval,
+            symbols = ?config.agent_symbols(),
+            min_interval_secs = config.agent.min_interval_secs,
+            retry_attempts = config.agent.retry_attempts,
+            failure_cooldown_secs = config.agent.failure_cooldown_secs,
+            "LLM agent configured"
+        );
+    }
+
+    for key in &keys {
+        tracing::info!(
+            symbol = %key.symbol,
+            interval = %key.interval,
+            "market subscription"
+        );
+    }
 
     let mut candles: HashMap<MarketKey, Vec<Candle>> = HashMap::new();
     let mut last_fetch: HashMap<MarketKey, Instant> = HashMap::new();
@@ -132,6 +177,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let mut fx_last: Option<Instant> = None;
     let mut social_posts: Vec<SocialPost> = Vec::new();
     let mut social_last: Option<Instant> = None;
+    let mut last_heartbeat: Option<Instant> = None;
+    let mut last_market_open: Option<bool> = None;
     let tick = Duration::from_secs(config.engine.tick_secs);
     let fx_refresh = Duration::from_secs(900);
 
@@ -139,6 +186,17 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let now = Utc::now();
         let market_open = is_us_market_open(now);
 
+        if last_market_open != Some(market_open) {
+            let session = if market_open { "open" } else { "closed" };
+            tracing::info!(
+                market_open,
+                session = %session,
+                "US market session changed"
+            );
+            last_market_open = Some(market_open);
+        }
+
+        let mut fetched_intervals = 0usize;
         for key in &keys {
             if !should_fetch(key, &last_fetch, market_open, &config.engine) {
                 continue;
@@ -148,12 +206,18 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                 .await
             {
                 Ok(series) => {
-                    tracing::debug!(
+                    let last = series.last();
+                    tracing::info!(
                         symbol = %key.symbol,
                         interval = %key.interval,
                         candles = series.len(),
-                        "fetched candles"
+                        last_close = last.map(|candle| candle.close).unwrap_or(0.0),
+                        last_time = %last
+                            .map(|candle| format_timestamp(candle.timestamp))
+                            .unwrap_or_default(),
+                        "market data updated"
                     );
+                    fetched_intervals += 1;
                     candles.insert(key.clone(), series);
                     last_fetch.insert(key.clone(), Instant::now());
                 }
@@ -183,7 +247,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                 Ok(rate) if rate > Decimal::ZERO => {
                     fx_rate = rate;
                     fx_last = Some(Instant::now());
-                    tracing::debug!(rate = %rate, "updated FX rate");
+                    tracing::info!(
+                        from = %config.market.instrument_currency,
+                        to = %config.market.quote_currency,
+                        rate = %rate,
+                        "FX rate updated"
+                    );
                 }
                 Ok(_) => {
                     tracing::warn!("FX rate was not positive; keeping {}", fx_rate);
@@ -208,7 +277,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             match social_provider.fetch(&config.social.accounts, since).await {
                 Ok(posts) => {
                     if !posts.is_empty() {
-                        tracing::debug!(posts = posts.len(), "fetched social posts");
+                        tracing::info!(
+                            posts = posts.len(),
+                            provider = social_provider.name(),
+                            "social posts fetched"
+                        );
                     }
                     social_posts = posts;
                     social_last = Some(Instant::now());
@@ -253,16 +326,24 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         };
 
         let mut intents: Vec<SignalIntent> = Vec::new();
+        let mut evaluated_sources = 0usize;
+        let mut produced_signals = 0usize;
         for entry in &mut sources {
             if !should_evaluate(&entry.interval, market_open, &config.engine) {
                 continue;
             }
+            evaluated_sources += 1;
             let produced = entry.source.on_tick(&ctx).await;
-            if !produced.is_empty() {
-                tracing::debug!(
-                    source = entry.source.name(),
-                    count = produced.len(),
-                    "source produced signals"
+            produced_signals += produced.len();
+            for intent in &produced {
+                tracing::info!(
+                    source = %intent.source,
+                    symbol = %intent.symbol,
+                    direction = %intent.direction.as_str(),
+                    confidence = intent.confidence,
+                    close_position = intent.close_position,
+                    reason = %intent.reason,
+                    "signal"
                 );
             }
             intents.extend(produced);
@@ -344,7 +425,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             }
         }
 
-        if !actions.is_empty() {
+        let action_count = actions.len();
+        let skipped_count = skipped.len();
+
+        if action_count > 0 {
             broker.persist(state_path)?;
             let report = Report {
                 timestamp: now,
@@ -357,6 +441,34 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             for line in skipped {
                 tracing::debug!("{line}");
             }
+        }
+
+        let heartbeat_due = last_heartbeat
+            .map(|instant| {
+                instant.elapsed() >= Duration::from_secs(config.engine.log_heartbeat_secs)
+            })
+            .unwrap_or(true);
+
+        if fetched_intervals > 0
+            || produced_signals > 0
+            || action_count > 0
+            || skipped_count > 0
+            || heartbeat_due
+        {
+            let portfolio = broker.portfolio();
+            tracing::info!(
+                market_open,
+                fetched_intervals,
+                evaluated_sources,
+                signals = produced_signals,
+                executed = action_count,
+                skipped = skipped_count,
+                cash = %portfolio.cash,
+                equity = %portfolio.equity(&prices),
+                positions = portfolio.positions.len(),
+                "tick complete"
+            );
+            last_heartbeat = Some(Instant::now());
         }
 
         tokio::select! {
@@ -448,7 +560,21 @@ fn agent_params(agent: &AgentConfig) -> toml::Value {
         "timeout_secs".to_string(),
         toml::Value::Integer(agent.timeout_secs as i64),
     );
+    table.insert(
+        "retry_attempts".to_string(),
+        toml::Value::Integer(agent.retry_attempts as i64),
+    );
+    table.insert(
+        "failure_cooldown_secs".to_string(),
+        toml::Value::Integer(agent.failure_cooldown_secs as i64),
+    );
     toml::Value::Table(table)
+}
+
+fn format_timestamp(timestamp: i64) -> String {
+    DateTime::<Utc>::from_timestamp(timestamp, 0)
+        .map(|date| date.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        .unwrap_or_else(|| timestamp.to_string())
 }
 
 fn is_us_market_open(now: DateTime<Utc>) -> bool {

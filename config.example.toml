@@ -38,6 +38,8 @@ use_quantity_hint = false
 [engine]
 tick_secs = 5
 max_history = 300
+# Emit a compact tick summary at INFO at least this often, even when idle.
+log_heartbeat_secs = 60
 # Intraday intervals only run while the US market is open. Daily and longer
 # intervals only run after the US market closes, so partial candles are ignored.
 market_hours_only = true

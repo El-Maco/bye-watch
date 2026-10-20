@@ -74,6 +74,7 @@ See `config.example.toml` for every option. The most important ones:
 | `engine` | `tick_secs` | Loop cadence |
 | `engine` | `max_history` | Candles fetched per symbol/interval |
 | `engine` | `market_hours_only` | Gate intraday runs to US market hours |
+| `engine` | `log_heartbeat_secs` | Minimum interval between idle tick summaries |
 | `agent` | `enabled` | Optional LLM source |
 | `agent` | `base_url` / `model` | OpenAI-compatible endpoint and model |
 

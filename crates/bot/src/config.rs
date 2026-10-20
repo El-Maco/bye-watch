@@ -49,6 +49,9 @@ impl Config {
         if self.engine.tick_secs == 0 {
             bail!("engine.tick_secs must be at least 1");
         }
+        if self.engine.log_heartbeat_secs == 0 {
+            bail!("engine.log_heartbeat_secs must be at least 1");
+        }
         if self.sizing.fraction <= 0.0 || self.sizing.fraction > 1.0 {
             bail!("sizing.fraction must be in (0, 1]");
         }
@@ -78,6 +81,12 @@ impl Config {
         if self.agent.enabled {
             if self.agent.min_interval_secs == 0 {
                 bail!("agent.min_interval_secs must be at least 1");
+            }
+            if self.agent.retry_attempts == 0 {
+                bail!("agent.retry_attempts must be at least 1");
+            }
+            if self.agent.failure_cooldown_secs == 0 {
+                bail!("agent.failure_cooldown_secs must be at least 1");
             }
             validate_interval(&self.agent.interval, "agent")?;
             if self.agent_symbols().is_empty() {
@@ -263,6 +272,8 @@ pub struct EngineConfig {
     pub max_history: usize,
     #[serde(default = "default_true")]
     pub market_hours_only: bool,
+    #[serde(default = "default_log_heartbeat")]
+    pub log_heartbeat_secs: u64,
 }
 
 impl Default for EngineConfig {
@@ -271,6 +282,7 @@ impl Default for EngineConfig {
             tick_secs: default_tick_secs(),
             max_history: default_max_history(),
             market_hours_only: true,
+            log_heartbeat_secs: default_log_heartbeat(),
         }
     }
 }
@@ -280,6 +292,9 @@ fn default_tick_secs() -> u64 {
 }
 fn default_max_history() -> usize {
     300
+}
+fn default_log_heartbeat() -> u64 {
+    60
 }
 
 #[derive(Debug, Deserialize)]
@@ -350,6 +365,10 @@ pub struct AgentConfig {
     pub min_interval_secs: u64,
     #[serde(default = "default_agent_timeout")]
     pub timeout_secs: u64,
+    #[serde(default = "default_agent_retry")]
+    pub retry_attempts: u32,
+    #[serde(default = "default_agent_cooldown")]
+    pub failure_cooldown_secs: u64,
     #[serde(default = "default_agent_interval")]
     pub interval: String,
     #[serde(default)]
@@ -365,6 +384,8 @@ impl Default for AgentConfig {
             api_key: None,
             min_interval_secs: default_agent_min_interval(),
             timeout_secs: default_agent_timeout(),
+            retry_attempts: default_agent_retry(),
+            failure_cooldown_secs: default_agent_cooldown(),
             interval: default_agent_interval(),
             symbols: None,
         }
@@ -381,6 +402,12 @@ fn default_agent_min_interval() -> u64 {
     3_600
 }
 fn default_agent_timeout() -> u64 {
+    60
+}
+fn default_agent_retry() -> u32 {
+    3
+}
+fn default_agent_cooldown() -> u64 {
     60
 }
 fn default_agent_interval() -> String {
