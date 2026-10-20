@@ -1,0 +1,17 @@
+[package]
+name = "strategy-pairs-trading"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "strategy_pairs"
+
+[dependencies]
+async-trait.workspace = true
+engine.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

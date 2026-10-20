@@ -1,29 +1,34 @@
-name: Deploy to ARM
+name: Build, test, and deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
     runs-on: self-hosted
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
           target: i686-unknown-linux-gnu
-          profile: minimal
+          components: clippy
 
       - name: Install dependencies
-        run: sudo apt-get install -y openssl libssl-dev gcc-multilib
+        run: sudo apt-get update && sudo apt-get install -y openssl libssl-dev gcc-multilib
+
+      - name: Test
+        run: export CARGO_HOME="/home/$(whoami)/.local/share/.cargo" && cargo test --workspace
+
+      - name: Clippy
+        run: export CARGO_HOME="/home/$(whoami)/.local/share/.cargo" && cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build
-        run: export CARGO_HOME="/home/$(whoami)/.local/share/.cargo" && cargo build --target i686-unknown-linux-gnu --release
+        run: export CARGO_HOME="/home/$(whoami)/.local/share/.cargo" && cargo build --release --target i686-unknown-linux-gnu -p bye-watch-bot
 
       - name: Deploy
         env:
@@ -33,6 +38,6 @@ jobs:
           TARGET_PATH: ${{ secrets.TARGET_PATH }}
         run: |
           ssh $TARGET_USER@$TARGET_HOST "echo $TARGET_PASS | sudo -S systemctl stop bye-watch.service"
-          ssh $TARGET_USER@$TARGET_HOST "cd $TARGET_PATH && mv bye-watch bye-watch_$(date +%Y-%m-%d_%H%M)"
-          scp target/i686-unknown-linux-gnu/release/bye-watch $TARGET_USER@$TARGET_HOST:$TARGET_PATH
-          ssh $TARGET_USER@$TARGET_HOST "echo $TARGET_PASS | sudo -S systemctl start budu.service"
+          ssh $TARGET_USER@$TARGET_HOST "cd $TARGET_PATH && mv bot bot_$(date +%Y-%m-%d_%H%M) || true"
+          scp target/i686-unknown-linux-gnu/release/bot $TARGET_USER@$TARGET_HOST:$TARGET_PATH
+          ssh $TARGET_USER@$TARGET_HOST "echo $TARGET_PASS | sudo -S systemctl start bye-watch.service"

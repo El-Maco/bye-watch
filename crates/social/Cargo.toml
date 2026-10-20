@@ -1,0 +1,13 @@
+[package]
+name = "bye-watch-social"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "social"
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+engine.workspace = true
+tracing.workspace = true

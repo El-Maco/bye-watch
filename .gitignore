@@ -1,2 +1,4 @@
 /target
-config.json
+config.toml
+portfolio.json
+logs/

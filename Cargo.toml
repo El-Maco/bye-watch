@@ -1,11 +1,42 @@
-[package]
-name = "bye-watch"
+[workspace]
+resolver = "2"
+members = [
+    "crates/engine",
+    "crates/bot",
+    "crates/market-yahoo",
+    "crates/social",
+    "crates/agent",
+    "strategies/moving-average-cross",
+    "strategies/rsi",
+    "strategies/pairs-trading",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
-[dependencies]
-chrono = "0.4.40"
-lettre = "0.11.15"
-reqwest = { version = "0.12.15", features = ["json", "blocking"] }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
+[workspace.dependencies]
+engine = { package = "bye-watch-engine", path = "crates/engine" }
+market_yahoo = { package = "bye-watch-market-yahoo", path = "crates/market-yahoo" }
+social = { package = "bye-watch-social", path = "crates/social" }
+agent = { package = "bye-watch-agent", path = "crates/agent" }
+strategy_ma_cross = { package = "strategy-ma-cross", path = "strategies/moving-average-cross" }
+strategy_rsi = { package = "strategy-rsi", path = "strategies/rsi" }
+strategy_pairs = { package = "strategy-pairs-trading", path = "strategies/pairs-trading" }
+
+async-trait = "0.1"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rust_decimal = { version = "1", features = ["serde", "maths"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal", "sync"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+urlencoding = "2"

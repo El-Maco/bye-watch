@@ -1,0 +1,83 @@
+# bye-watch example configuration.
+# Copy this file to config.toml and adjust it. config.toml is gitignored.
+
+[market]
+# Only "yahoo" is implemented today. The provider interface allows more later.
+provider = "yahoo"
+base_url = "https://query1.finance.yahoo.com"
+# Instruments are priced in USD and the paper ledger is kept in EUR.
+instrument_currency = "USD"
+quote_currency = "EUR"
+# Used only when the live FX lookup fails.
+fx_fallback_rate = 0.92
+
+[paper]
+starting_cash_eur = 100.0
+state_path = "portfolio.json"
+# Pairs trading needs short selling. Set false for long-only paper trading.
+allow_short = true
+
+[fees]
+# Set enabled = false to ignore all trading costs in fills and PnL.
+enabled = true
+commission_flat = 0.0   # EUR per order
+commission_pct = 0.0    # fraction of notional, e.g. 0.001 = 0.1%
+slippage_bps = 5.0      # basis points of adverse slippage
+
+[sizing]
+# "fixed" or "equity_fraction"
+mode = "equity_fraction"
+fraction = 0.25
+# Hard cap. Values >= 1 are rejected; the engine also clamps to 0.95.
+max_fraction = 0.25
+fixed_quantity = 1.0
+# When true, a source may supply quantity_hint (for example an LLM) and the
+# sizer will not exceed it.
+use_quantity_hint = false
+
+[engine]
+tick_secs = 5
+max_history = 300
+# Intraday intervals only run while the US market is open. Daily and longer
+# intervals only run after the US market closes, so partial candles are ignored.
+market_hours_only = true
+
+[notifier]
+console = true
+log_dir = "logs"
+
+[social]
+# "none" is the safe default. Unknown providers also fall back to none.
+provider = "none"
+accounts = []
+lookback_hours = 24
+refresh_secs = 1800
+
+[agent]
+# Optional LLM signal source. Errors are logged and never stop the bot.
+enabled = false
+base_url = "http://localhost:8787/v1"
+model = "deepseek-v4.1-flash"
+# api_key = "optional-bearer-token"
+min_interval_secs = 3600
+timeout_secs = 60
+interval = "1d"
+symbols = ["KO", "PEP"]
+
+[[strategies]]
+name = "ma_cross"
+symbols = ["KO", "PEP"]
+interval = "1d"
+params = { fast = 50, slow = 200 }
+
+[[strategies]]
+name = "rsi"
+symbols = ["KO", "PEP"]
+interval = "1d"
+params = { period = 14, buy_below = 30, sell_above = 70 }
+
+[[strategies]]
+name = "pairs_trading"
+symbols = ["KO", "PEP"]
+interval = "1d"
+params = { lookback = 60, entry_z = 2.0, exit_z = 0.5, beta = 1.0 }
