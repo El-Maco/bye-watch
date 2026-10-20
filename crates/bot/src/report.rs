@@ -12,17 +12,19 @@ use crate::config::Config;
 
 const CSS: &str = r#"
 :root {
-  --bg: #f4f6fb;
-  --card: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --line: #e2e8f0;
-  --accent: #2563eb;
-  --green: #15803d;
-  --red: #b91c1c;
-  --amber: #b45309;
+  color-scheme: dark;
+  --bg: #0b1120;
+  --card: #111827;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --line: #24324a;
+  --accent: #60a5fa;
+  --green: #4ade80;
+  --red: #f87171;
+  --amber: #fbbf24;
 }
 * { box-sizing: border-box; }
+html { background: var(--bg); }
 body {
   margin: 0;
   background: var(--bg);
@@ -38,7 +40,7 @@ h2 { font-size: 16px; margin: 0 0 14px; letter-spacing: -0.01em; }
 .sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .badge {
   display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px;
-  font-weight: 700; letter-spacing: 0.08em; background: #dbeafe; color: #1d4ed8;
+  font-weight: 700; letter-spacing: 0.08em; background: #1e3a8a; color: #bfdbfe;
 }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 15px 16px; }
@@ -63,9 +65,9 @@ tr:last-child td { border-bottom: none; }
   display: inline-block; font-weight: 700; font-size: 10px; padding: 2px 8px;
   border-radius: 999px; letter-spacing: 0.05em;
 }
-.side.buy { background: #dcfce7; color: #166534; }
-.side.sell { background: #fee2e2; color: #991b1b; }
-.reason { max-width: 330px; color: #334155; }
+.side.buy { background: rgba(74, 222, 128, 0.14); color: var(--green); }
+.side.sell { background: rgba(248, 113, 113, 0.14); color: var(--red); }
+.reason { max-width: 330px; color: #cbd5e1; }
 .chart { width: 100%; height: auto; display: block; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
@@ -502,7 +504,7 @@ fn equity_chart(history: &[EquityPoint]) -> String {
         let value = min + span * fraction;
         let y = pad_y + (1.0 - fraction.to_f64().unwrap_or(0.0)) * (height - 2.0 * pad_y);
         grid.push_str(&format!(
-            "<line x1=\"{pad_x}\" y1=\"{y:.2}\" x2=\"{x2:.2}\" y2=\"{y:.2}\" stroke=\"#e2e8f0\" stroke-width=\"1\"></line><text x=\"{label_x:.2}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\" text-anchor=\"end\">{value}</text>",
+            "<line x1=\"{pad_x}\" y1=\"{y:.2}\" x2=\"{x2:.2}\" y2=\"{y:.2}\" stroke=\"#24324a\" stroke-width=\"1\"></line><text x=\"{label_x:.2}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\" text-anchor=\"end\">{value}</text>",
             x2 = width - pad_x,
             label_x = pad_x - 8.0,
             label_y = y + 4.0,
@@ -532,7 +534,7 @@ fn equity_chart(history: &[EquityPoint]) -> String {
     let last = &points[count - 1];
 
     format!(
-        "<svg class=\"chart\" viewBox=\"0 0 {width} {height}\" role=\"img\" aria-label=\"Equity curve\">\n{grid}\n<path d=\"{area}\" fill=\"rgba(37,99,235,0.12)\" stroke=\"none\"></path>\n<polyline points=\"{polyline}\" fill=\"none\" stroke=\"#2563eb\" stroke-width=\"2.5\" stroke-linejoin=\"round\" stroke-linecap=\"round\"></polyline>\n<circle cx=\"{last_x:.2}\" cy=\"{last_y:.2}\" r=\"3.5\" fill=\"#2563eb\"></circle>\n<text x=\"{pad_x}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\">{first_label}</text>\n<text x=\"{last_label_x:.2}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\" text-anchor=\"end\">{last_label}</text>\n</svg>\n",
+        "<svg class=\"chart\" viewBox=\"0 0 {width} {height}\" role=\"img\" aria-label=\"Equity curve\">\n{grid}\n<path d=\"{area}\" fill=\"rgba(96,165,250,0.16)\" stroke=\"none\"></path>\n<polyline points=\"{polyline}\" fill=\"none\" stroke=\"#60a5fa\" stroke-width=\"2.5\" stroke-linejoin=\"round\" stroke-linecap=\"round\"></polyline>\n<circle cx=\"{last_x:.2}\" cy=\"{last_y:.2}\" r=\"3.5\" fill=\"#60a5fa\"></circle>\n<text x=\"{pad_x}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\">{first_label}</text>\n<text x=\"{last_label_x:.2}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\" text-anchor=\"end\">{last_label}</text>\n</svg>\n",
         grid = grid,
         area = area,
         polyline = polyline,
