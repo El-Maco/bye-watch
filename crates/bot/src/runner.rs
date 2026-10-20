@@ -17,6 +17,7 @@ use rust_decimal::Decimal;
 use social::build_provider;
 
 use crate::config::{AgentConfig, Config, EngineConfig};
+use crate::report::write_report;
 
 struct SourceEntry {
     source: Box<dyn SignalSource>,
@@ -173,6 +174,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     let mut candles: HashMap<MarketKey, Vec<Candle>> = HashMap::new();
     let mut last_fetch: HashMap<MarketKey, Instant> = HashMap::new();
+    let mut prices: HashMap<String, Decimal> = HashMap::new();
+    let mut last_report: Option<Instant> = None;
     let mut fx_rate = decimal_from_f64(config.market.fx_fallback_rate)?;
     let mut fx_last: Option<Instant> = None;
     let mut social_posts: Vec<SocialPost> = Vec::new();
@@ -307,7 +310,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             }
         }
 
-        let mut prices: HashMap<String, Decimal> = HashMap::new();
+        prices.clear();
         for (symbol, (_, close)) in latest {
             match decimal_from_f64(close) {
                 Ok(price) => {
@@ -471,6 +474,28 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             last_heartbeat = Some(Instant::now());
         }
 
+        if config.report.enabled {
+            let periodic_due = config.report.refresh_secs > 0
+                && last_report
+                    .map(|instant| {
+                        instant.elapsed() >= Duration::from_secs(config.report.refresh_secs)
+                    })
+                    .unwrap_or(true);
+            let report_due = last_report.is_none() || action_count > 0 || periodic_due;
+            if report_due {
+                match write_report(&config, broker.portfolio(), &prices) {
+                    Ok(()) => tracing::info!(
+                        path = %config.report.html_path,
+                        "HTML report written"
+                    ),
+                    Err(error) => {
+                        tracing::warn!(error = %error, "failed to write HTML report")
+                    }
+                }
+                last_report = Some(Instant::now());
+            }
+        }
+
         tokio::select! {
             result = tokio::signal::ctrl_c() => {
                 if let Err(err) = result {
@@ -483,6 +508,15 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         }
     }
 
+    if config.report.enabled {
+        match write_report(&config, broker.portfolio(), &prices) {
+            Ok(()) => tracing::info!(
+                path = %config.report.html_path,
+                "HTML report written on shutdown"
+            ),
+            Err(error) => tracing::warn!(error = %error, "failed to write HTML report on shutdown"),
+        }
+    }
     broker.persist(state_path)?;
     tracing::info!("bye-watch stopped; portfolio saved");
     Ok(())

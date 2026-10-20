@@ -45,7 +45,9 @@ cargo run -p bye-watch-bot --release -- --config config.toml
 ```
 
 The bot creates `logs/bye-watch.log.YYYY-MM-DD` and writes `portfolio.json` when
-it trades. Stop it with Ctrl-C; the portfolio is saved on exit.
+it trades. It also writes a self-contained `report.html` dashboard. Open that
+file in any browser; no web server is needed. Stop the bot with Ctrl-C; the
+portfolio and final report are saved on exit.
 
 Run validation:
 
@@ -75,6 +77,11 @@ See `config.example.toml` for every option. The most important ones:
 | `engine` | `max_history` | Candles fetched per symbol/interval |
 | `engine` | `market_hours_only` | Gate intraday runs to US market hours |
 | `engine` | `log_heartbeat_secs` | Minimum interval between idle tick summaries |
+| `report` | `enabled` | Write the HTML dashboard |
+| `report` | `html_path` | Output HTML path |
+| `report` | `history_path` | Equity-curve history JSON |
+| `report` | `refresh_secs` | Report refresh interval; `0` only on trades |
+| `report` | `max_history_points` | Maximum equity-curve points kept |
 | `agent` | `enabled` | Optional LLM source |
 | `agent` | `base_url` / `model` | OpenAI-compatible endpoint and model |
 

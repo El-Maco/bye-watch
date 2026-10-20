@@ -1,4 +1,6 @@
 /target
 config.toml
 portfolio.json
+report.html
+report-history.json
 logs/

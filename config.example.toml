@@ -48,6 +48,15 @@ market_hours_only = true
 console = true
 log_dir = "logs"
 
+[report]
+# Self-contained HTML dashboard. Open report.html in a browser.
+enabled = true
+html_path = "report.html"
+history_path = "report-history.json"
+# Refresh at least this often. 0 means only after trades and on shutdown.
+refresh_secs = 60
+max_history_points = 500
+
 [social]
 # "none" is the safe default. Unknown providers also fall back to none.
 provider = "none"

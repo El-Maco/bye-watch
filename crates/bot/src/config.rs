@@ -22,6 +22,8 @@ pub struct Config {
     #[serde(default)]
     pub notifier: NotifierConfig,
     #[serde(default)]
+    pub report: ReportConfig,
+    #[serde(default)]
     pub social: SocialConfig,
     #[serde(default)]
     pub agent: AgentConfig,
@@ -91,6 +93,18 @@ impl Config {
             validate_interval(&self.agent.interval, "agent")?;
             if self.agent_symbols().is_empty() {
                 bail!("agent is enabled but no symbols are configured");
+            }
+        }
+
+        if self.report.enabled {
+            if self.report.html_path.trim().is_empty() {
+                bail!("report.html_path must not be empty");
+            }
+            if self.report.history_path.trim().is_empty() {
+                bail!("report.history_path must not be empty");
+            }
+            if self.report.max_history_points < 2 {
+                bail!("report.max_history_points must be at least 2");
             }
         }
 
@@ -316,6 +330,46 @@ impl Default for NotifierConfig {
 
 fn default_log_dir() -> String {
     "logs".to_string()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReportConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_report_html_path")]
+    pub html_path: String,
+    #[serde(default = "default_report_history_path")]
+    pub history_path: String,
+    /// How often to refresh the HTML report. Zero refreshes only on trades.
+    #[serde(default = "default_report_refresh")]
+    pub refresh_secs: u64,
+    #[serde(default = "default_report_history_points")]
+    pub max_history_points: usize,
+}
+
+impl Default for ReportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            html_path: default_report_html_path(),
+            history_path: default_report_history_path(),
+            refresh_secs: default_report_refresh(),
+            max_history_points: default_report_history_points(),
+        }
+    }
+}
+
+fn default_report_html_path() -> String {
+    "report.html".to_string()
+}
+fn default_report_history_path() -> String {
+    "report-history.json".to_string()
+}
+fn default_report_refresh() -> u64 {
+    60
+}
+fn default_report_history_points() -> usize {
+    500
 }
 
 #[derive(Debug, Deserialize)]

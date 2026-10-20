@@ -1,4 +1,5 @@
 mod config;
+mod report;
 mod runner;
 
 use std::path::PathBuf;
