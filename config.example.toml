@@ -61,6 +61,8 @@ model = "deepseek-v4.1-flash"
 # api_key = "optional-bearer-token"
 min_interval_secs = 3600
 timeout_secs = 60
+retry_attempts = 3
+failure_cooldown_secs = 60
 interval = "1d"
 symbols = ["KO", "PEP"]
 

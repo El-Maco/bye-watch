@@ -21,6 +21,10 @@ struct AgentParams {
     timeout_secs: u64,
     #[serde(default = "default_temperature")]
     temperature: f64,
+    #[serde(default = "default_retry_attempts")]
+    retry_attempts: u32,
+    #[serde(default = "default_failure_cooldown")]
+    failure_cooldown_secs: u64,
 }
 
 fn default_min_interval() -> u64 {
@@ -35,6 +39,14 @@ fn default_temperature() -> f64 {
     0.2
 }
 
+fn default_retry_attempts() -> u32 {
+    3
+}
+
+fn default_failure_cooldown() -> u64 {
+    60
+}
+
 pub struct LlmAgent {
     client: reqwest::Client,
     base_url: String,
@@ -44,7 +56,9 @@ pub struct LlmAgent {
     interval: String,
     min_interval: Duration,
     temperature: f64,
-    last_run: Option<Instant>,
+    retry_attempts: u32,
+    failure_cooldown: Duration,
+    next_run: Option<Instant>,
 }
 
 impl LlmAgent {
@@ -69,7 +83,9 @@ impl LlmAgent {
             interval: config.interval,
             min_interval: Duration::from_secs(params.min_interval_secs),
             temperature: params.temperature,
-            last_run: None,
+            retry_attempts: params.retry_attempts.max(1),
+            failure_cooldown: Duration::from_secs(params.failure_cooldown_secs.max(1)),
+            next_run: None,
         })
     }
 
@@ -124,6 +140,7 @@ impl LlmAgent {
             .first()
             .and_then(|choice| choice.message.content.as_deref())
             .ok_or_else(|| EngineError::Other("LLM returned no content".to_string()))?;
+        tracing::debug!(content, "LLM agent response");
 
         self.parse_signals(content)
     }
@@ -239,25 +256,45 @@ impl SignalSource for LlmAgent {
     }
 
     async fn on_tick(&mut self, ctx: &TickContext) -> Vec<SignalIntent> {
-        if let Some(last_run) = self.last_run {
-            if last_run.elapsed() < self.min_interval {
+        let now = Instant::now();
+        if let Some(next_run) = self.next_run {
+            if now < next_run {
                 return Vec::new();
             }
         }
-        self.last_run = Some(Instant::now());
 
-        match self.ask(ctx).await {
-            Ok(intents) => {
-                if !intents.is_empty() {
-                    tracing::info!(count = intents.len(), "LLM agent produced signals");
+        let mut last_error = None;
+        for attempt in 1..=self.retry_attempts {
+            match self.ask(ctx).await {
+                Ok(intents) => {
+                    self.next_run = Some(Instant::now() + self.min_interval);
+                    tracing::info!(signals = intents.len(), "LLM agent completed");
+                    return intents;
                 }
-                intents
-            }
-            Err(err) => {
-                tracing::warn!(error = %err, "LLM agent failed; continuing without its signals");
-                Vec::new()
+                Err(err) => {
+                    tracing::warn!(
+                        attempt,
+                        attempts = self.retry_attempts,
+                        error = %err,
+                        "LLM agent attempt failed"
+                    );
+                    last_error = Some(err);
+                    if attempt < self.retry_attempts {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
             }
         }
+
+        if let Some(err) = last_error {
+            tracing::warn!(
+                error = %err,
+                cooldown_secs = self.failure_cooldown.as_secs(),
+                "LLM agent unavailable; backing off"
+            );
+        }
+        self.next_run = Some(Instant::now() + self.failure_cooldown);
+        Vec::new()
     }
 }
 
@@ -350,7 +387,9 @@ mod tests {
             interval: "1d".to_string(),
             min_interval: Duration::from_secs(3_600),
             temperature: 0.2,
-            last_run: None,
+            retry_attempts: 3,
+            failure_cooldown: Duration::from_secs(60),
+            next_run: None,
         }
     }
 

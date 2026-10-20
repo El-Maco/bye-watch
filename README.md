@@ -160,7 +160,8 @@ closes plus any social posts to an OpenAI-compatible endpoint and expects:
 
 The default endpoint is `http://localhost:8787/v1` with
 `deepseek-v4.1-flash`. If the proxy is down, returns bad JSON, or suggests a
-symbol outside the configured universe, the agent logs a warning and returns no
+symbol outside the configured universe, the agent retries `retry_attempts`
+times, logs a warning, backs off for `failure_cooldown_secs`, and returns no
 signals. The rest of the bot keeps running.
 
 `crates/social` currently ships only `NullSocialProvider`. The `SocialProvider`
