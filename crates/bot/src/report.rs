@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 
-const CSS: &str = r#"
+pub(crate) const CSS: &str = r#"
 :root {
   color-scheme: dark;
   --bg: #0b1120;
@@ -314,7 +314,7 @@ pub fn render_html(
     html
 }
 
-fn kpi(label: &str, value: String, sub: &str, class: &str) -> String {
+pub(crate) fn kpi(label: &str, value: String, sub: &str, class: &str) -> String {
     format!(
         "<div class=\"kpi\"><div class=\"label\">{}</div><div class=\"value {}\">{}</div><div class=\"sub\">{}</div></div>\n",
         esc(label),
@@ -324,7 +324,7 @@ fn kpi(label: &str, value: String, sub: &str, class: &str) -> String {
     )
 }
 
-fn fact(label: &str, value: &str) -> String {
+pub(crate) fn fact(label: &str, value: &str) -> String {
     format!(
         "<div class=\"fact\"><div class=\"fact-label\">{}</div><div class=\"fact-value\">{}</div></div>\n",
         esc(label),
@@ -332,7 +332,7 @@ fn fact(label: &str, value: &str) -> String {
     )
 }
 
-fn positions_table(
+pub(crate) fn positions_table(
     portfolio: &Portfolio,
     prices: &HashMap<String, Decimal>,
     equity: Decimal,
@@ -376,19 +376,19 @@ fn positions_table(
     html
 }
 
-fn trades_table(portfolio: &Portfolio) -> String {
+pub(crate) fn trades_table(portfolio: &Portfolio) -> String {
     if portfolio.trades.is_empty() {
         return "<p class=\"empty\">No trades yet.</p>\n".to_string();
     }
 
-    let mut html = String::from("<table><thead><tr><th>Time</th><th>Source</th><th>Symbol</th><th>Side</th><th class=\"num\">Quantity</th><th class=\"num\">Price</th><th class=\"num\">Fees</th><th class=\"num\">Slippage</th><th class=\"num\">Conf.</th><th>Reason</th></tr></thead><tbody>\n");
+    let mut html = String::from("<table><thead><tr><th>Time</th><th>Source</th><th>Symbol</th><th>Side</th><th class=\"num\">Quantity</th><th class=\"num\">Price</th><th class=\"num\">Fees</th><th class=\"num\">Slippage</th><th class=\"num\">Realized</th><th class=\"num\">Conf.</th><th>Reason</th></tr></thead><tbody>\n");
     for trade in portfolio.trades.iter().rev().take(200) {
         let (side_class, side_label) = match trade.side {
             Side::Buy => ("buy", "BUY"),
             Side::Sell => ("sell", "SELL"),
         };
         html.push_str(&format!(
-            "<tr><td class=\"muted\">{}</td><td>{}</td><td><strong>{}</strong></td><td><span class=\"side {}\">{}</span></td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{:.2}</td><td class=\"reason\">{}</td></tr>\n",
+            "<tr><td class=\"muted\">{}</td><td>{}</td><td><strong>{}</strong></td><td><span class=\"side {}\">{}</span></td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num {}\">{}</td><td class=\"num\">{:.2}</td><td class=\"reason\">{}</td></tr>\n",
             trade.timestamp.format("%Y-%m-%d %H:%M:%S"),
             esc(&trade.source),
             esc(&trade.symbol),
@@ -398,6 +398,8 @@ fn trades_table(portfolio: &Portfolio) -> String {
             money(trade.price),
             money(trade.fees),
             money(trade.slippage),
+            pnl_class(trade.realized_pnl),
+            money(trade.realized_pnl),
             trade.confidence,
             esc(&trade.reason)
         ));
@@ -457,7 +459,7 @@ fn sources_table(portfolio: &Portfolio) -> String {
     html
 }
 
-fn equity_chart(history: &[EquityPoint]) -> String {
+pub(crate) fn equity_chart(history: &[EquityPoint]) -> String {
     if history.len() < 2 {
         return "<p class=\"empty\">Not enough history yet. The curve fills in as the bot runs.</p>\n"
             .to_string();
@@ -610,7 +612,7 @@ fn fee_summary(config: &Config) -> String {
     )
 }
 
-fn percentage(value: Decimal, base: Decimal) -> Decimal {
+pub(crate) fn percentage(value: Decimal, base: Decimal) -> Decimal {
     if base.is_zero() {
         Decimal::ZERO
     } else {
@@ -618,7 +620,7 @@ fn percentage(value: Decimal, base: Decimal) -> Decimal {
     }
 }
 
-fn pnl_class(value: Decimal) -> &'static str {
+pub(crate) fn pnl_class(value: Decimal) -> &'static str {
     if value > Decimal::ZERO {
         "pos"
     } else if value < Decimal::ZERO {
@@ -628,19 +630,19 @@ fn pnl_class(value: Decimal) -> &'static str {
     }
 }
 
-fn money(value: Decimal) -> String {
+pub(crate) fn money(value: Decimal) -> String {
     value.round_dp(2).to_string()
 }
 
-fn pct(value: Decimal) -> String {
+pub(crate) fn pct(value: Decimal) -> String {
     format!("{}%", value)
 }
 
-fn timestamp(value: DateTime<Utc>) -> String {
+pub(crate) fn timestamp(value: DateTime<Utc>) -> String {
     value.format("%Y-%m-%d %H:%M:%S UTC").to_string()
 }
 
-fn esc(value: &str) -> String {
+pub(crate) fn esc(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")

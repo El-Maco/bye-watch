@@ -82,6 +82,9 @@ See `config.example.toml` for every option. The most important ones:
 | `report` | `history_path` | Equity-curve history JSON |
 | `report` | `refresh_secs` | Report refresh interval; `0` only on trades |
 | `report` | `max_history_points` | Maximum equity-curve points kept |
+| `backtest` | `html_path` | Backtest dashboard output |
+| `backtest` | `json_path` | Backtest results JSON |
+| `backtest` | `max_curve_points` | Maximum stored equity-curve points |
 | `agent` | `enabled` | Optional LLM source |
 | `agent` | `base_url` / `model` | OpenAI-compatible endpoint and model |
 
@@ -136,6 +139,55 @@ Strategies read candles from `TickContext` and must track the last candle they
 evaluated so they do not repeat a signal when the bot polls faster than the
 interval.
 
+## Backtesting
+
+The bot can replay a strategy over historical Yahoo Finance data and write a
+simulation report.
+
+```bash
+# Run every configured strategy over all available history
+cargo run -p bye-watch-bot --release -- backtest --config config.toml
+
+# One strategy over a specific period
+cargo run -p bye-watch-bot --release -- backtest --config config.toml \
+  --strategy rsi --symbol KO,PEP --from 2010-01-01 --to 2024-12-31
+
+# Override cash and output paths
+cargo run -p bye-watch-bot --release -- backtest --config config.toml \
+  --cash 1000 --html backtest.html --json backtest.json
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--strategy NAME[,NAME]` | Strategy names to run. Default: all configured strategies |
+| `--symbol SYM[,SYM]` | Override the strategy's symbols |
+| `--interval VALUE` | Override the strategy's interval |
+| `--from YYYY-MM-DD` | Start date. Default: earliest available |
+| `--to YYYY-MM-DD` | End date. Default: latest available |
+| `--cash EUR` | Starting cash. Default: `paper.starting_cash_eur` |
+| `--html PATH` | HTML dashboard output |
+| `--json PATH` | JSON results output |
+
+The simulation:
+
+- Fetches daily or intraday history from Yahoo Finance. The keyless chart API
+  provides daily history back to 1970 for many US stocks (KO returned 14,322
+  daily candles in testing). Intraday history is limited by Yahoo (about 7 days
+  for `1m`, 60 days for `5m`-`30m`, and 730 days for `1h`).
+- Generates signals from closed candles and fills them at the next candle's
+  open, avoiding look-ahead at the signal close.
+- Uses split-adjusted closes, so dividends are not modelled. The benchmark is a
+  price return.
+- Uses the same fee model, sizing policy, shorting setting, and portfolio
+  accounting as the paper trader.
+- Holds FX constant at the rate fetched when the run starts. This keeps strategy
+  comparisons simple; historical FX conversion can be added later.
+- Reports return, max drawdown, trade count, win rate, profit factor, and an
+  equal-weight buy-and-hold benchmark.
+
+Results are printed to the console and written to `backtest.json` and
+`backtest.html`.
+
 ## Fees and PnL
 
 Fills apply `slippage_bps` and `commission_pct` plus `commission_flat`. Reports
@@ -183,6 +235,10 @@ Market data is behind the `MarketData` trait, and FX is behind `FxSource`, so a
 keyed provider can be added without touching strategies or the engine. Market
 holidays and early closes are not modelled; the scheduler only checks weekday
 US market hours.
+
+For history, Yahoo is the only keyless provider wired in. Alternatives that
+require a key include Alpha Vantage, Finnhub, Tiingo, Polygon, and Alpaca.
+Stooq offers daily CSVs but now sits behind a browser check, so it is not used.
 
 ## Live trading
 

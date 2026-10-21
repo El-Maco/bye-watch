@@ -22,10 +22,12 @@ fn hard_max_fraction() -> Decimal {
 }
 
 fn effective_fraction(configured: Decimal, max_fraction: Decimal) -> Decimal {
-    let cap = hard_max_fraction();
-    let mut fraction = configured.max(Decimal::ZERO);
-    fraction = fraction.min(max_fraction.max(Decimal::ZERO));
-    fraction.min(cap)
+    let fraction = configured.max(Decimal::ZERO);
+    fraction.min(max_position_fraction(max_fraction))
+}
+
+fn max_position_fraction(max_fraction: Decimal) -> Decimal {
+    max_fraction.max(Decimal::ZERO).min(hard_max_fraction())
 }
 
 fn price_for(symbol: &str, prices: &HashMap<String, Decimal>) -> Result<Decimal> {
@@ -60,8 +62,10 @@ impl PositionSizer for FixedSizer {
         }
 
         let price = price_for(&intent.symbol, prices)?;
-        let notional_cap = portfolio.equity * effective_fraction(Decimal::ONE, self.max_fraction);
-        let quantity_cap = notional_cap / price;
+        let current_value = portfolio.position_qty(&intent.symbol).abs() * price;
+        let position_cap = portfolio.equity * max_position_fraction(self.max_fraction);
+        let available_value = (position_cap - current_value).max(Decimal::ZERO);
+        let quantity_cap = available_value / price;
         let mut quantity = self.quantity.max(Decimal::ZERO).min(quantity_cap);
 
         if self.use_quantity_hint {
@@ -103,8 +107,11 @@ impl PositionSizer for EquityFractionSizer {
 
         let price = price_for(&intent.symbol, prices)?;
         let fraction = effective_fraction(self.fraction, self.max_fraction);
-        let notional = portfolio.equity * fraction;
-        let mut quantity = (notional / price).max(Decimal::ZERO);
+        let current_value = portfolio.position_qty(&intent.symbol).abs() * price;
+        let position_cap = portfolio.equity * max_position_fraction(self.max_fraction);
+        let available_value = (position_cap - current_value).max(Decimal::ZERO);
+        let target_value = (portfolio.equity * fraction).min(available_value);
+        let mut quantity = (target_value / price).max(Decimal::ZERO);
 
         if self.use_quantity_hint {
             if let Some(hint) = intent.quantity_hint {
@@ -194,5 +201,33 @@ mod tests {
             .size(&intent, &view(1_000, None), &prices(10))
             .unwrap();
         assert_eq!(quantity, Decimal::from(25));
+    }
+
+    #[test]
+    fn does_not_add_beyond_the_position_cap() {
+        let sizer = EquityFractionSizer {
+            fraction: Decimal::new(25, 2),
+            max_fraction: Decimal::new(25, 2),
+            use_quantity_hint: false,
+        };
+        let intent = SignalIntent::new("KO", Side::Buy, 0.7, "entry", "test");
+        let quantity = sizer
+            .size(&intent, &view(1_000, Some(25)), &prices(10))
+            .unwrap();
+        assert_eq!(quantity, Decimal::ZERO);
+    }
+
+    #[test]
+    fn adds_only_up_to_the_position_cap() {
+        let sizer = EquityFractionSizer {
+            fraction: Decimal::new(25, 2),
+            max_fraction: Decimal::new(25, 2),
+            use_quantity_hint: false,
+        };
+        let intent = SignalIntent::new("KO", Side::Buy, 0.7, "entry", "test");
+        let quantity = sizer
+            .size(&intent, &view(1_000, Some(10)), &prices(10))
+            .unwrap();
+        assert_eq!(quantity, Decimal::from(15));
     }
 }

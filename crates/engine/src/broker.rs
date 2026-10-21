@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
 use crate::error::{EngineError, Result};
@@ -18,6 +18,8 @@ pub struct OrderRequest {
     pub reason: String,
     pub confidence: f64,
     pub source: String,
+    /// Optional clock override, used by backtests to stamp simulated fills.
+    pub timestamp: Option<DateTime<Utc>>,
 }
 
 #[async_trait]
@@ -109,7 +111,7 @@ impl Broker for PaperBroker {
         }
 
         let fill = Fill {
-            timestamp: Utc::now(),
+            timestamp: order.timestamp.unwrap_or_else(Utc::now),
             symbol: order.symbol.clone(),
             side: order.side,
             quantity: order.quantity,
@@ -155,6 +157,7 @@ mod tests {
             reason: "test".to_string(),
             confidence: 0.5,
             source: "test".to_string(),
+            timestamp: None,
         }
     }
 

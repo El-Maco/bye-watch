@@ -2,22 +2,21 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use anyhow::bail;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use chrono_tz::America::New_York;
 use engine::{
-    decimal_from_f64, ActionReport, Broker, Candle, ConsoleNotifier, EquityFractionSizer,
-    FeeConfig, FeeModel, FixedSizer, FxSource, MarketData, MarketKey, Notifier, OrderRequest,
-    PaperBroker, Portfolio, PortfolioSummary, PortfolioView, PositionSizer, PositionSummary,
-    PositionView, Report, Side, SignalIntent, SignalSource, SocialPost, SourceConfig,
-    SourceRegistry, TickContext,
+    decimal_from_f64, Broker, Candle, ConsoleNotifier, FxSource, MarketData, MarketKey, Notifier,
+    PaperBroker, Portfolio, PortfolioSummary, PositionSummary, Report, SignalIntent, SignalSource,
+    SocialPost, SourceConfig, TickContext,
 };
 use market_yahoo::YahooClient;
 use rust_decimal::Decimal;
 use social::build_provider;
 
 use crate::config::{AgentConfig, Config, EngineConfig};
+use crate::execution::{execute_intents, portfolio_view};
 use crate::report::write_report;
+use crate::setup::{build_fee_model, build_registry, build_sizer};
 
 struct SourceEntry {
     source: Box<dyn SignalSource>,
@@ -35,28 +34,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     let market = YahooClient::with_base_url(&config.market.base_url)?;
 
-    let fees = FeeModel::from(FeeConfig {
-        enabled: config.fees.enabled,
-        commission_flat: decimal_from_f64(config.fees.commission_flat)?,
-        commission_pct: decimal_from_f64(config.fees.commission_pct)?,
-        slippage_bps: decimal_from_f64(config.fees.slippage_bps)?,
-    });
-    let max_fraction = decimal_from_f64(config.sizing.max_fraction)?;
-    let use_quantity_hint = config.sizing.use_quantity_hint;
-
-    let sizer: Box<dyn PositionSizer> = match config.sizing.mode.as_str() {
-        "fixed" => Box::new(FixedSizer {
-            quantity: decimal_from_f64(config.sizing.fixed_quantity)?,
-            max_fraction,
-            use_quantity_hint,
-        }),
-        "equity_fraction" => Box::new(EquityFractionSizer {
-            fraction: decimal_from_f64(config.sizing.fraction)?,
-            max_fraction,
-            use_quantity_hint,
-        }),
-        other => bail!("unknown sizing.mode '{other}'"),
-    };
+    let fees = build_fee_model(&config)?;
+    let sizer = build_sizer(&config)?;
 
     let starting_cash = decimal_from_f64(config.paper.starting_cash_eur)?;
     let state_path = Path::new(&config.paper.state_path);
@@ -67,11 +46,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         config.paper.allow_short,
     )?);
 
-    let mut registry = SourceRegistry::new();
-    strategy_ma_cross::register(&mut registry);
-    strategy_rsi::register(&mut registry);
-    strategy_pairs::register(&mut registry);
-    agent::register(&mut registry);
+    let registry = build_registry();
 
     let mut sources: Vec<SourceEntry> = Vec::new();
     for strategy in &config.strategies {
@@ -352,82 +327,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             intents.extend(produced);
         }
 
-        // Confidence-ranked aggregation: one winning intent per symbol.
-        let mut best: HashMap<String, SignalIntent> = HashMap::new();
-        for intent in intents {
-            let replace = match best.get(&intent.symbol) {
-                Some(existing) => intent.confidence > existing.confidence,
-                None => true,
-            };
-            if replace {
-                best.insert(intent.symbol.clone(), intent);
-            }
-        }
-
-        let mut actions: Vec<ActionReport> = Vec::new();
-        let mut skipped: Vec<String> = Vec::new();
-
-        for intent in best.into_values() {
-            let price = match prices.get(&intent.symbol).copied() {
-                Some(price) if price > Decimal::ZERO => price,
-                _ => {
-                    skipped.push(format!("{}: no price available", intent.symbol));
-                    continue;
-                }
-            };
-
-            let snapshot = portfolio_view(broker.portfolio(), &prices);
-            let quantity = match sizer.size(&intent, &snapshot, &prices) {
-                Ok(quantity) => quantity,
-                Err(err) => {
-                    skipped.push(format!("{}: sizing failed: {err}", intent.symbol));
-                    continue;
-                }
-            };
-
-            let quantity = if intent.direction == Side::Buy && !intent.close_position {
-                let cash = broker.portfolio().cash;
-                quantity.min((cash / price).round_dp(6))
-            } else {
-                quantity
-            };
-
-            if quantity <= Decimal::ZERO {
-                skipped.push(format!(
-                    "{}: no size (close_position={}, direction={})",
-                    intent.symbol,
-                    intent.close_position,
-                    intent.direction.as_str()
-                ));
-                continue;
-            }
-
-            let order = OrderRequest {
-                symbol: intent.symbol.clone(),
-                side: intent.direction,
-                quantity,
-                reference_price: price,
-                reason: intent.reason.clone(),
-                confidence: intent.confidence,
-                source: intent.source.clone(),
-            };
-
-            match broker.place_order(&order).await {
-                Ok(fill) => actions.push(ActionReport {
-                    timestamp: fill.timestamp,
-                    symbol: fill.symbol,
-                    side: fill.side,
-                    quantity: fill.quantity,
-                    price: fill.price,
-                    fees: fill.fees,
-                    confidence: fill.confidence,
-                    source: fill.source,
-                    reason: fill.reason,
-                }),
-                Err(err) => skipped.push(format!("{}: order rejected: {err}", order.symbol)),
-            }
-        }
-
+        let (actions, skipped) =
+            execute_intents(broker.as_mut(), sizer.as_ref(), intents, &prices, now).await;
         let action_count = actions.len();
         let skipped_count = skipped.len();
 
@@ -520,24 +421,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     broker.persist(state_path)?;
     tracing::info!("bye-watch stopped; portfolio saved");
     Ok(())
-}
-
-fn portfolio_view(portfolio: &Portfolio, prices: &HashMap<String, Decimal>) -> PortfolioView {
-    let mut positions = HashMap::new();
-    for (symbol, position) in &portfolio.positions {
-        positions.insert(
-            symbol.clone(),
-            PositionView {
-                quantity: position.quantity,
-                avg_entry_price: position.avg_entry_price,
-            },
-        );
-    }
-    PortfolioView {
-        cash: portfolio.cash,
-        equity: portfolio.equity(prices),
-        positions,
-    }
 }
 
 fn portfolio_summary(portfolio: &Portfolio, prices: &HashMap<String, Decimal>) -> PortfolioSummary {

@@ -24,6 +24,8 @@ pub struct Config {
     #[serde(default)]
     pub report: ReportConfig,
     #[serde(default)]
+    pub backtest: BacktestConfig,
+    #[serde(default)]
     pub social: SocialConfig,
     #[serde(default)]
     pub agent: AgentConfig,
@@ -106,6 +108,16 @@ impl Config {
             if self.report.max_history_points < 2 {
                 bail!("report.max_history_points must be at least 2");
             }
+        }
+
+        if self.backtest.html_path.trim().is_empty() {
+            bail!("backtest.html_path must not be empty");
+        }
+        if self.backtest.json_path.trim().is_empty() {
+            bail!("backtest.json_path must not be empty");
+        }
+        if self.backtest.max_curve_points < 2 {
+            bail!("backtest.max_curve_points must be at least 2");
         }
 
         if self.strategies.is_empty() && !self.agent.enabled {
@@ -370,6 +382,36 @@ fn default_report_refresh() -> u64 {
 }
 fn default_report_history_points() -> usize {
     500
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BacktestConfig {
+    #[serde(default = "default_backtest_html_path")]
+    pub html_path: String,
+    #[serde(default = "default_backtest_json_path")]
+    pub json_path: String,
+    #[serde(default = "default_backtest_curve_points")]
+    pub max_curve_points: usize,
+}
+
+impl Default for BacktestConfig {
+    fn default() -> Self {
+        Self {
+            html_path: default_backtest_html_path(),
+            json_path: default_backtest_json_path(),
+            max_curve_points: default_backtest_curve_points(),
+        }
+    }
+}
+
+fn default_backtest_html_path() -> String {
+    "backtest.html".to_string()
+}
+fn default_backtest_json_path() -> String {
+    "backtest.json".to_string()
+}
+fn default_backtest_curve_points() -> usize {
+    2_000
 }
 
 #[derive(Debug, Deserialize)]

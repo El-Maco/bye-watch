@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use engine::{decimal_from_f64, Candle, EngineError, FxSource, MarketData, Result};
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -38,9 +39,31 @@ impl YahooClient {
             interval,
             range
         );
+        self.request_chart(&url, symbol).await
+    }
 
+    async fn fetch_chart_period(
+        &self,
+        symbol: &str,
+        interval: &str,
+        period1: i64,
+        period2: i64,
+    ) -> Result<ChartData> {
+        let encoded = urlencoding::encode(symbol);
+        let url = format!(
+            "{}/v8/finance/chart/{}?interval={}&period1={}&period2={}&events=div%2Csplits",
+            self.base_url.trim_end_matches('/'),
+            encoded,
+            interval,
+            period1,
+            period2
+        );
+        self.request_chart(&url, symbol).await
+    }
+
+    async fn request_chart(&self, url: &str, symbol: &str) -> Result<ChartData> {
         let response =
-            self.client.get(&url).send().await.map_err(|e| {
+            self.client.get(url).send().await.map_err(|e| {
                 EngineError::MarketData(format!("request for {symbol} failed: {e}"))
             })?;
 
@@ -146,6 +169,33 @@ impl MarketData for YahooClient {
                 "Yahoo returned less history than requested"
             );
         }
+        Ok(candles)
+    }
+
+    async fn history(
+        &self,
+        symbol: &str,
+        interval: &str,
+        from: Option<chrono::DateTime<Utc>>,
+        to: Option<chrono::DateTime<Utc>>,
+    ) -> Result<Vec<Candle>> {
+        let period1 = from.map(|value| value.timestamp()).unwrap_or(0);
+        let period2 = to
+            .map(|value| value.timestamp())
+            .unwrap_or_else(|| Utc::now().timestamp());
+
+        let mut candles = self
+            .fetch_chart_period(symbol, interval, period1, period2)
+            .await?
+            .candles;
+
+        if let Some(from) = from {
+            candles.retain(|candle| candle.timestamp >= from.timestamp());
+        }
+        if let Some(to) = to {
+            candles.retain(|candle| candle.timestamp <= to.timestamp());
+        }
+
         Ok(candles)
     }
 }

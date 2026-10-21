@@ -3,4 +3,6 @@ config.toml
 portfolio.json
 report.html
 report-history.json
+backtest.html
+backtest.json
 logs/

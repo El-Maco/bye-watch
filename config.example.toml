@@ -57,6 +57,11 @@ history_path = "report-history.json"
 refresh_secs = 60
 max_history_points = 500
 
+[backtest]
+html_path = "backtest.html"
+json_path = "backtest.json"
+max_curve_points = 2000
+
 [social]
 # "none" is the safe default. Unknown providers also fall back to none.
 provider = "none"

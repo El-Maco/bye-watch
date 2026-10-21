@@ -61,26 +61,11 @@ pub struct Trade {
     pub fees: Decimal,
     #[serde(default)]
     pub slippage: Decimal,
+    #[serde(default)]
+    pub realized_pnl: Decimal,
     pub reason: String,
     pub confidence: f64,
     pub source: String,
-}
-
-impl From<&Fill> for Trade {
-    fn from(fill: &Fill) -> Self {
-        Self {
-            timestamp: fill.timestamp,
-            symbol: fill.symbol.clone(),
-            side: fill.side,
-            quantity: fill.quantity,
-            price: fill.price,
-            fees: fill.fees,
-            slippage: fill.slippage,
-            reason: fill.reason.clone(),
-            confidence: fill.confidence,
-            source: fill.source.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,7 +154,19 @@ impl Portfolio {
 
         let realized = self.apply_to_position(fill);
         self.realized_pnl += realized;
-        self.trades.push(Trade::from(fill));
+        self.trades.push(Trade {
+            timestamp: fill.timestamp,
+            symbol: fill.symbol.clone(),
+            side: fill.side,
+            quantity: fill.quantity,
+            price: fill.price,
+            fees: fill.fees,
+            slippage: fill.slippage,
+            realized_pnl: realized,
+            reason: fill.reason.clone(),
+            confidence: fill.confidence,
+            source: fill.source.clone(),
+        });
         realized
     }
 
@@ -264,6 +261,7 @@ mod tests {
         portfolio.apply_fill(&fill(Side::Sell, 10, 12, 0));
         assert_eq!(portfolio.position_qty("KO"), Decimal::ZERO);
         assert_eq!(portfolio.realized_pnl, Decimal::from(20));
+        assert_eq!(portfolio.trades[1].realized_pnl, Decimal::from(20));
         assert_eq!(portfolio.cash, Decimal::from(1_020));
     }
 
