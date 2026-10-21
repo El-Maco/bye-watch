@@ -4,10 +4,11 @@ use std::path::Path;
 use anyhow::{bail, Context};
 use chrono::{DateTime, NaiveDate, Utc};
 use engine::{
-    decimal_from_f64, Broker, Candle, FxSource, MarketData, PaperBroker, Portfolio, SignalSource,
-    SourceConfig, SourceRegistry, TickContext, Trade,
+    decimal_from_f64, Broker, Candle, FxSource, MarketData, PaperBroker, Portfolio, Side,
+    SignalSource, SourceConfig, SourceRegistry, TickContext, Trade,
 };
 use market_yahoo::YahooClient;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::Serialize;
 
@@ -29,6 +30,12 @@ pub struct BacktestArgs {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PricePoint {
+    pub timestamp: DateTime<Utc>,
+    pub close: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct BacktestResult {
     pub strategy: String,
     pub symbols: Vec<String>,
@@ -47,6 +54,7 @@ pub struct BacktestResult {
     pub profit_factor: Option<Decimal>,
     pub benchmark_return_pct: Decimal,
     pub equity_curve: Vec<EquityPoint>,
+    pub price_series: HashMap<String, Vec<PricePoint>>,
     pub final_prices: HashMap<String, Decimal>,
     pub portfolio: Portfolio,
 }
@@ -340,6 +348,24 @@ async fn simulate(
     let (closed_trades, win_rate_pct, profit_factor) = trade_stats(&portfolio.trades);
     let benchmark_return_pct = benchmark_return(history, symbols);
     let equity_curve = downsample(equity_curve, config.backtest.max_curve_points);
+    let fx = fx_rate.to_f64().unwrap_or(1.0);
+    let mut price_series = HashMap::new();
+    for symbol in symbols {
+        if let Some(candles) = history.get(symbol) {
+            let points = candles
+                .iter()
+                .map(|candle| PricePoint {
+                    timestamp: DateTime::<Utc>::from_timestamp(candle.timestamp, 0)
+                        .unwrap_or_else(Utc::now),
+                    close: candle.close * fx,
+                })
+                .collect();
+            price_series.insert(
+                symbol.clone(),
+                downsample_prices(points, config.backtest.max_curve_points),
+            );
+        }
+    }
 
     Ok(BacktestResult {
         strategy: strategy_name.to_string(),
@@ -359,6 +385,7 @@ async fn simulate(
         profit_factor,
         benchmark_return_pct,
         equity_curve,
+        price_series,
         final_prices: last_close_prices,
         portfolio,
     })
@@ -450,6 +477,169 @@ fn downsample(points: Vec<EquityPoint>, max_points: usize) -> Vec<EquityPoint> {
     }
     sampled
 }
+
+fn downsample_prices(points: Vec<PricePoint>, max_points: usize) -> Vec<PricePoint> {
+    if points.len() <= max_points || max_points < 2 {
+        return points;
+    }
+    let stride = ((points.len() as f64) / (max_points as f64)).ceil() as usize;
+    let mut sampled: Vec<PricePoint> = points.iter().step_by(stride.max(1)).cloned().collect();
+    if sampled.last().map(|point| point.timestamp) != points.last().map(|point| point.timestamp) {
+        if let Some(last) = points.last() {
+            sampled.push(last.clone());
+        }
+    }
+    sampled
+}
+
+const PRICE_COLORS: [&str; 4] = ["#a78bfa", "#cbd5e1", "#22d3ee", "#cc79a7"];
+
+fn price_chart(prices: &HashMap<String, Vec<PricePoint>>, trades: &[Trade]) -> String {
+    let mut series: Vec<(&str, &Vec<PricePoint>)> = prices
+        .iter()
+        .filter(|(_, points)| !points.is_empty())
+        .map(|(symbol, points)| (symbol.as_str(), points))
+        .collect();
+    series.sort_by(|left, right| left.0.cmp(right.0));
+
+    let (Some(t_min), Some(t_max)) = (
+        series
+            .iter()
+            .filter_map(|(_, points)| points.first().map(|point| point.timestamp))
+            .min(),
+        series
+            .iter()
+            .filter_map(|(_, points)| points.last().map(|point| point.timestamp))
+            .max(),
+    ) else {
+        return "<p class=\"empty\">No price history.</p>\n".to_string();
+    };
+
+    let width = 900.0_f64;
+    let height = 260.0_f64;
+    let pad_x = 64.0_f64;
+    let pad_y = 24.0_f64;
+    let t_span = (t_max - t_min).num_seconds().max(1) as f64;
+    let x_at = |timestamp: DateTime<Utc>| -> f64 {
+        pad_x + (timestamp - t_min).num_seconds().max(0) as f64 / t_span * (width - 2.0 * pad_x)
+    };
+
+    let raw_min = series
+        .iter()
+        .flat_map(|(_, points)| points.iter().map(|point| point.close))
+        .fold(f64::INFINITY, f64::min);
+    let raw_max = series
+        .iter()
+        .flat_map(|(_, points)| points.iter().map(|point| point.close))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let padding = if raw_max > raw_min {
+        (raw_max - raw_min) * 0.05
+    } else {
+        raw_max.abs().max(1.0) * 0.05
+    };
+    let min = raw_min - padding;
+    let max = raw_max + padding;
+    let span = max - min;
+    let y_at = |value: f64| -> f64 {
+        pad_y + (1.0 - (value - min) / span) * (height - 2.0 * pad_y)
+    };
+
+    let mut grid = String::new();
+    for step in 0..=4 {
+        let fraction = step as f64 / 4.0;
+        let value = min + span * fraction;
+        let y = y_at(value);
+        grid.push_str(&format!(
+            "<line x1=\"{pad_x}\" y1=\"{y:.2}\" x2=\"{x2:.2}\" y2=\"{y:.2}\" stroke=\"#24324a\" stroke-width=\"1\"></line><text x=\"{label_x:.2}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\" text-anchor=\"end\">{value:.2}</text>",
+            x2 = width - pad_x,
+            label_x = pad_x - 8.0,
+            label_y = y + 4.0,
+        ));
+    }
+
+    let mut legend = String::new();
+    for (index, (symbol, _)) in series.iter().enumerate() {
+        let color = PRICE_COLORS[index % PRICE_COLORS.len()];
+        let x = pad_x + index as f64 * 120.0;
+        legend.push_str(&format!(
+            "<rect x=\"{x:.2}\" y=\"2\" width=\"10\" height=\"10\" rx=\"2\" fill=\"{color}\"></rect><text x=\"{tx:.2}\" y=\"11\" fill=\"#94a3b8\" font-size=\"11\">{}</text>",
+            report::esc(symbol),
+            tx = x + 14.0,
+        ));
+    }
+    let marker_x = width - pad_x - 92.0;
+    legend.push_str(&format!(
+        "<circle cx=\"{marker_x:.2}\" cy=\"7\" r=\"3.5\" fill=\"#0072b2\"></circle><text x=\"{buy_x:.2}\" y=\"11\" fill=\"#94a3b8\" font-size=\"11\">buy</text><rect x=\"{sell_cx:.2}\" y=\"3.5\" width=\"7\" height=\"7\" fill=\"#e69f00\"></rect><text x=\"{sell_x:.2}\" y=\"11\" fill=\"#94a3b8\" font-size=\"11\">sell</text>",
+        buy_x = marker_x + 7.0,
+        sell_cx = marker_x + 41.0,
+        sell_x = marker_x + 51.0,
+    ));
+
+    let mut lines = String::new();
+    for (index, (symbol, points)) in series.iter().enumerate() {
+        let color = PRICE_COLORS[index % PRICE_COLORS.len()];
+        let mut polyline = String::new();
+        for (point_index, point) in points.iter().enumerate() {
+            if point_index > 0 {
+                polyline.push(' ');
+            }
+            polyline.push_str(&format!(
+                "{:.2},{:.2}",
+                x_at(point.timestamp),
+                y_at(point.close)
+            ));
+        }
+        lines.push_str(&format!(
+            "<polyline points=\"{polyline}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.8\" stroke-linejoin=\"round\" stroke-linecap=\"round\"><title>{}</title></polyline>\n",
+            report::esc(symbol)
+        ));
+    }
+
+    let mut markers = String::new();
+    for trade in trades {
+        if !prices.contains_key(&trade.symbol) {
+            continue;
+        }
+        let Some(price) = trade.price.to_f64().filter(|value| value.is_finite()) else {
+            continue;
+        };
+        let (color, label) = match trade.side {
+            Side::Buy => ("#0072b2", "BUY"),
+            Side::Sell => ("#e69f00", "SELL"),
+        };
+        let x = x_at(trade.timestamp);
+        let y = y_at(price);
+        let tip = format!(
+            "<title>{} {} {} @ {:.2} ({})</title>",
+            report::esc(&trade.symbol),
+            label,
+            trade.quantity,
+            price,
+            trade.timestamp.format("%Y-%m-%d"),
+        );
+        // Shape carries the side too, so it survives greyscale and any CVD.
+        let shape = match trade.side {
+            Side::Buy => format!(
+                "<circle cx=\"{x:.2}\" cy=\"{y:.2}\" r=\"2.8\" fill=\"{color}\" fill-opacity=\"0.9\">{tip}</circle>\n"
+            ),
+            Side::Sell => format!(
+                "<rect x=\"{rx:.2}\" y=\"{ry:.2}\" width=\"5.6\" height=\"5.6\" fill=\"{color}\" fill-opacity=\"0.9\">{tip}</rect>\n",
+                rx = x - 2.8,
+                ry = y - 2.8,
+            ),
+        };
+        markers.push_str(&shape);
+    }
+
+    format!(
+        "<svg class=\"chart\" viewBox=\"0 0 {width} {height}\" role=\"img\" aria-label=\"Price history with trades\">\n{grid}{legend}{lines}{markers}\n<text x=\"{pad_x}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\">{first}</text>\n<text x=\"{last_x:.2}\" y=\"{label_y:.2}\" fill=\"#94a3b8\" font-size=\"11\" text-anchor=\"end\">{last}</text>\n</svg>\n",
+        first = t_min.format("%Y-%m-%d"),
+        last = t_max.format("%Y-%m-%d"),
+        last_x = width - pad_x,
+        label_y = height - 4.0,
+    )
+}
+
 
 fn profit_factor_label(result: &BacktestResult) -> String {
     if result.closed_trades == 0 {
@@ -622,6 +812,8 @@ fn render_html(config: &Config, results: &[BacktestResult]) -> String {
 
         html.push_str("<h2>Equity curve</h2>\n");
         html.push_str(&report::equity_chart(&result.equity_curve));
+        html.push_str("<h2 style=\"margin-top:20px\">Price &amp; trades</h2>\n");
+        html.push_str(&price_chart(&result.price_series, &result.portfolio.trades));
         html.push_str("<h2 style=\"margin-top:20px\">Open positions</h2>\n");
         html.push_str(&report::positions_table(
             &result.portfolio,
@@ -741,6 +933,50 @@ params = { fast = 2, slow = 3 }
         assert_eq!(sampled.first().unwrap().equity, Decimal::from(0));
         assert_eq!(sampled.last().unwrap().equity, Decimal::from(9));
         assert!(sampled.len() <= 4);
+    }
+
+    #[test]
+    fn price_chart_marks_buys_and_sells() {
+        let start = DateTime::<Utc>::from_timestamp(0, 0).expect("start");
+        let end = DateTime::<Utc>::from_timestamp(86_400, 0).expect("end");
+        let mut prices = HashMap::new();
+        prices.insert(
+            "KO".to_string(),
+            vec![
+                PricePoint {
+                    timestamp: start,
+                    close: 10.0,
+                },
+                PricePoint {
+                    timestamp: end,
+                    close: 12.0,
+                },
+            ],
+        );
+        let trade = |side: Side, price: i64| Trade {
+            timestamp: end,
+            symbol: "KO".to_string(),
+            side,
+            quantity: Decimal::ONE,
+            price: Decimal::from(price),
+            fees: Decimal::ZERO,
+            slippage: Decimal::ZERO,
+            realized_pnl: Decimal::ZERO,
+            reason: "test".to_string(),
+            confidence: 0.9,
+            source: "rsi".to_string(),
+        };
+
+        let svg = price_chart(
+            &prices,
+            &[trade(Side::Buy, 12), trade(Side::Sell, 11)],
+        );
+        assert!(svg.contains("KO"));
+        assert!(svg.contains("BUY"));
+        assert!(svg.contains("SELL"));
+        assert!(svg.contains("#0072b2"));
+        assert!(svg.contains("#e69f00"));
+        assert!(svg.contains("<rect"));
     }
 
     #[test]

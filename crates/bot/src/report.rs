@@ -19,8 +19,9 @@ pub(crate) const CSS: &str = r#"
   --muted: #94a3b8;
   --line: #24324a;
   --accent: #60a5fa;
-  --green: #4ade80;
-  --red: #f87171;
+  /* Colourblind-safe pair (blue / orange) instead of green / red. */
+  --positive: #0072b2;
+  --negative: #e69f00;
   --amber: #fbbf24;
 }
 * { box-sizing: border-box; }
@@ -58,15 +59,15 @@ th {
 td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pos { color: var(--green); }
-.neg { color: var(--red); }
+.pos { color: var(--positive); }
+.neg { color: var(--negative); }
 .muted { color: var(--muted); }
 .side {
   display: inline-block; font-weight: 700; font-size: 10px; padding: 2px 8px;
   border-radius: 999px; letter-spacing: 0.05em;
 }
-.side.buy { background: rgba(74, 222, 128, 0.14); color: var(--green); }
-.side.sell { background: rgba(248, 113, 113, 0.14); color: var(--red); }
+.side.buy { background: rgba(0, 114, 178, 0.22); color: var(--positive); }
+.side.sell { background: rgba(230, 159, 0, 0.18); color: var(--negative); }
 .reason { max-width: 330px; color: #cbd5e1; }
 .chart { width: 100%; height: auto; display: block; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
